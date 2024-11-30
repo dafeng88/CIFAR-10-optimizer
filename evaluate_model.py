@@ -1,4 +1,6 @@
 # 导入必要的库
+import csv
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -6,6 +8,8 @@ import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
 import time
+
+from keras.src.metrics import F1Score
 from matplotlib import pyplot as plt
 import os
 from sklearn.metrics import confusion_matrix, precision_score, recall_score, f1_score, roc_auc_score, accuracy_score, \
@@ -14,8 +18,15 @@ from sklearn.metrics import classification_report
 from sklearn.preprocessing import label_binarize
 import seaborn as sns
 from sklearn.metrics import roc_curve
+from terminaltables import AsciiTable
 
 from  net.lenet import LeNet
+# 计算Top-k准确率
+def top_k_accuracy(output, target, k=5):
+    pred = output.topk(k, 1, True, True)[1]
+    correct = pred.eq(target.view(-1, 1).expand_as(pred))
+    correct = correct[0].view(-1).float().sum()
+    return correct / output.size(0)
 # 测试函数
 def test_model(net, device,test_loader,k=5):
     net.eval()
@@ -46,12 +57,12 @@ def test_model(net, device,test_loader,k=5):
             all_labels.extend(labels.cpu().numpy())
             probs = torch.nn.functional.softmax(outputs, dim=1)
             all_probs.extend(probs.cpu().numpy())
-    accuracy = correct / total
+    accuracy = 100.0 *correct / total
     top1_acc = 100. * correct_1 / total
     topk_acc = 100. * correct_k / total
-    print(f'Top-1 Acc: {top1_acc:.3f}%, Top-{k} Acc: {topk_acc:.3f}%')
-    print(f'Accuracy: {accuracy:.3f}')
-    return accuracy, all_labels, all_preds,all_probs
+    # print(f'Top-1 Acc: {top1_acc:.3f}%, Top-{k} Acc: {topk_acc:.3f}%')
+    # print(f'Accuracy: {accuracy:.3f}')
+    return top1_acc,topk_acc,accuracy, all_labels, all_preds,all_probs
 
 # 绘制混淆矩阵、计算精确率、召回率、F1分数
 def evaluate(net, device, optimizer_name,testloader, y_true, y_pred):
@@ -67,7 +78,7 @@ def evaluate(net, device, optimizer_name,testloader, y_true, y_pred):
     recall = recall_score(y_true, y_pred, average='weighted')
     #F1分数
     f1 = f1_score(y_true, y_pred, average='weighted')
-    print(f'Precision: {precision:.4f}, Recall: {recall:.4f}, F1 Score: {f1:.4f}')
+    #print(f'Precision: {precision:.4f}, Recall: {recall:.4f}, F1 Score: {f1:.4f}')
     return precision, recall, f1
 
 #绘制ROC曲线
@@ -102,17 +113,10 @@ def plot_auc_roc(all_labels,all_probs,optimizer_name):
     plt.ylim([0.0, 1.05])
     plt.xlabel('False Positive Rate')
     plt.ylabel('True Positive Rate')
-    plt.title('Receiver Operating Characteristic for CIFAR-10')
+    plt.title(f'{optimizer_name}_Receiver Operating Characteristic for CIFAR-10')
     plt.legend(loc="lower right")
     plt.savefig(f"./results/roc_curves/{optimizer_name}_roc_curve.png")
     plt.show()
-
-# 计算Top-k准确率
-def top_k_accuracy(output, target, k=5):
-    pred = output.topk(k, 1, True, True)[1]
-    correct = pred.eq(target.view(-1, 1).expand_as(pred))
-    correct = correct[0].view(-1).float().sum()
-    return correct / output.size(0)
 
 def EModel():
     # 测试集通常不做数据增强，只归一化）
@@ -140,9 +144,17 @@ def EModel():
     all_labels = []
     all_preds = []
     all_probs = []
+    top1_acc=0.0
+    topk_acc=0.0
     precisions = {name: 0.0 for name in optimizer_names}
     recalls = {name: 0.0 for name in optimizer_names}
     f1s = {name: 0.0 for name in optimizer_names}
+    with open('output_dict.csv', 'w', newline='', encoding='utf-8') as csvfile:
+        fieldnames = ['Top-1 Acc', 'Top-5 Acc', 'Accuracy','Mean Precision', 'Mean Recall', 'Mean F1 Score']  # 定义字段名
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        # 写入表头
+        writer.writeheader()
+
     for i in range(6):
         # 评估模型
         model_ft.eval()
@@ -162,14 +174,32 @@ def EModel():
             state_dict = torch.load("./model/Adadelta_model.pth", map_location=torch.device('cpu'))
         model_ft.load_state_dict(state_dict)
         #评估模型
-        accuracy, all_labels,all_preds,all_probs = test_model(model_ft,device,test_loader)
+        top1_acc,topk_acc,accuracy, all_labels,all_preds,all_probs = test_model(model_ft,device,test_loader)
+        # roc曲线
+        plot_auc_roc(all_labels, all_probs, optimizer_name)
         #精确率、召回率、f1分数
         precision, recall, f1 = evaluate(model_ft,device,optimizer_name,test_loader,all_labels, all_preds)
         precisions[optimizer_name] = precision  #精确度
         recalls[optimizer_name] = recall  #召回率
         f1s[optimizer_name] = f1   #F1分数
-        #
-        plot_auc_roc(all_labels,all_probs,optimizer_name)
+
+        TITLE = f'  {optimizer_name}Total Results'
+        TABLE_DATA_2 = [
+            ['Top-1 Acc', 'Top-5 Acc', 'Accuracy','Mean Precision', 'Mean Recall', 'Mean F1 Score'],
+            ['{:.4f}'.format(top1_acc),
+            '{:.4f}'.format(topk_acc),
+            '{:.4f}'.format(accuracy),
+            '{:.4f}'.format(precision),
+             '{:.4f}'.format(recall),
+             '{:.4f}'.format(f1)],
+        ]
+        # 创建表格实例
+        table_instance = AsciiTable(TABLE_DATA_2, TITLE)
+        # table_instance.justify_columns[2] = 'right'
+        print(table_instance.table)
+        # writer.writerows(TABLE_DATA_2)
+        # writer.writerow([])
+        print()
 
 
 
