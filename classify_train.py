@@ -243,14 +243,14 @@ def main():
             optimizer = optim.Adadelta(net.parameters(), lr=1.0)
 
         print(f'Training with {optimizer_name}')
-
+        #保存各个优化器的训练损失，训练精确率到数组
         net,train_losses, train_accs ,test_losses,test_accs= train_and_test(net,optimizer_name,optimizer, num_epochs,i)  # 训练网络
         all_train_losses[optimizer_name]= train_losses
         all_train_accs[optimizer_name]= train_accs
         all_test_losses[optimizer_name]= test_losses
         all_test_accs[optimizer_name]= test_accs
 
-
+    #绘制损失、精确率
     plot_loss_acc(all_train_losses,all_train_accs,all_test_losses,all_test_accs)
 
 
