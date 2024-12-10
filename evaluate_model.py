@@ -27,14 +27,14 @@ def top_k_accuracy(output, target, k=5):
     correct = pred.eq(target.view(-1, 1).expand_as(pred))
     correct = correct[0].view(-1).float().sum()
     return correct / output.size(0)
-# 测试函数
+# 验证模型，并输出top-k准确率
 def test_model(net, device,test_loader,k=5):
     net.eval()
     correct = 0
     total=0
     all_preds = []
-    all_labels = []
-    all_probs=[]
+    all_labels = [] #标签列表
+    all_probs=[]  #模型输出的概率
     correct_1 = 0
     correct_k = 0
     with torch.no_grad():
@@ -55,6 +55,8 @@ def test_model(net, device,test_loader,k=5):
 
             all_preds.extend(predicted.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
+            #softmax函数通常用于多分类问题中，将模型的原始输出（通常是logits）转换为概率分布，这样每个类别的输出值都在0到1之间，并且所有类别的输出值之和为1。
+            #用于绘制ROC曲线
             probs = torch.nn.functional.softmax(outputs, dim=1)
             all_probs.extend(probs.cpu().numpy())
     accuracy = 100.0 *correct / total
@@ -70,6 +72,7 @@ def evaluate(net, device, optimizer_name,testloader, y_true, y_pred):
     cm = confusion_matrix(y_true, y_pred)
     sns.heatmap(cm, annot=True, fmt='d',cmap='Blues')
     plt.title(f"{optimizer_name}_Confusion Matrix")
+    #保存图
     plt.savefig(f"./results/confusion_matrix/{optimizer_name}_confusion_matrix.png")
     plt.show()
     #精确率
@@ -149,16 +152,18 @@ def EModel():
     precisions = {name: 0.0 for name in optimizer_names}
     recalls = {name: 0.0 for name in optimizer_names}
     f1s = {name: 0.0 for name in optimizer_names}
+
     with open('output_dict.csv', 'w', newline='', encoding='utf-8') as csvfile:
         fieldnames = ['Top-1 Acc', 'Top-5 Acc', 'Accuracy','Mean Precision', 'Mean Recall', 'Mean F1 Score']  # 定义字段名
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         # 写入表头
         writer.writeheader()
 
-    for i in range(6):
+    for i in range(len(optimizer_names)):
         # 评估模型
         model_ft.eval()
         optimizer_name= optimizer_names[i]
+        #加载已保存的最优模型，并将GPU的数据转化为cpu（方便在自己电脑进行测试）
         state_dict = torch.load("./model/SGD+Momentum_model.pth", map_location=torch.device('cpu'))
         if i == 0:
             state_dict = torch.load("./model/SGD+Momentum_model.pth", map_location=torch.device('cpu'))
@@ -173,6 +178,7 @@ def EModel():
         elif i == 5:
             state_dict = torch.load("./model/Adadelta_model.pth", map_location=torch.device('cpu'))
         model_ft.load_state_dict(state_dict)
+        print(model_ft.state_dict().keys())
         #评估模型
         top1_acc,topk_acc,accuracy, all_labels,all_preds,all_probs = test_model(model_ft,device,test_loader)
         # roc曲线
@@ -183,6 +189,7 @@ def EModel():
         recalls[optimizer_name] = recall  #召回率
         f1s[optimizer_name] = f1   #F1分数
 
+        #以表格的形式打印数据
         TITLE = f'  {optimizer_name}Total Results'
         TABLE_DATA_2 = [
             ['Top-1 Acc', 'Top-5 Acc', 'Accuracy','Mean Precision', 'Mean Recall', 'Mean F1 Score'],

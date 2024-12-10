@@ -24,9 +24,9 @@ torch.backends.cudnn.benchmark = True
 # 数据预处理
 train_transform = transforms.Compose([
     transforms.ToTensor()
-    , transforms.RandomCrop(32, padding=4)  # 先四周填充0，在吧图像随机裁剪成32*32
+    , transforms.RandomCrop(32, padding=4)  # 先四周填充0，再把图像随机裁剪成32*32
     , transforms.RandomHorizontalFlip(p=0.5)  # 随机水平翻转 选择一个概率概率
-    , transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # 均值，标准差
+    ,transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # 均值，标准差
 ])
 
 # 测试集通常不做数据增强，只归一化）
@@ -45,6 +45,7 @@ test_loader = torch.utils.data.DataLoader(test_set, batch_size=128, shuffle=Fals
 
 # 使用同一个日志目录
 writer = SummaryWriter("logs/")
+# 现在得到的result是用matlab画的，没有采用tensorboard
 
 
 # 训练函数
@@ -61,9 +62,12 @@ def train_and_test(net,optimizer_name,optimizer,num_epochs,i):
     counter = 0
     # 初始学习率
     Lr = 0.1
+    #用来记录每次较好的精确率
     with open("accuracy_log.txt", "a") as file:  # "a" 表示追加模式
         file.write(f"traning:{optimizer_name}\n")  # 写入一行数据
+    #开始训练
     for epoch in range(num_epochs): #一个epoch跑完一遍测试集
+        #只有SGD是动态调整
         if i==0:
             #动态调整学习率
             if counter / 10 == 1:
@@ -72,12 +76,12 @@ def train_and_test(net,optimizer_name,optimizer,num_epochs,i):
             #重新设置优化器
             optimizer = optim.SGD(net.parameters(), lr=Lr, momentum=0.9, weight_decay=5e-4)
         net.train()  # 设置网络为训练模式
-        running_loss = 0.0
+        running_loss = 0.0  #记录一轮的损失
         correct = 0
         total = 0
         # 使用tqdm显示训练进度条
         train_bar = tqdm(train_loader, desc=f'Training Epoch {epoch + 1}/{num_epochs}')
-        for inputs, labels in train_bar:    #每一轮训练一个批次,每个批次大小为设置的8
+        for inputs, labels in train_bar:    #每一轮训练一个批次,每个批次大小为设置的128
             inputs, labels = inputs.to(device), labels.to(device)
 
             optimizer.zero_grad()  # 梯度清零
@@ -108,6 +112,7 @@ def train_and_test(net,optimizer_name,optimizer,num_epochs,i):
         writer.add_scalar(f"{optimizer_name}/TrainLoss", train_loss, epoch)
         writer.add_scalar(f"{optimizer_name}/TrainAcc", train_acc, epoch)
 
+        #评估模型
         net.eval()  # 设置网络为评估模式
         test_loss = 0.0
         correct = 0
@@ -152,6 +157,7 @@ def train_and_test(net,optimizer_name,optimizer,num_epochs,i):
 def plot_loss_acc(train_losses,train_accs,all_test_losses,all_test_accs):
     plt.figure(figsize=(10, 10))
     plt.subplot(2, 2, 1)
+    #遍历可视化各个算法的ltrain_loss
     for name, loss_values in train_losses.items():
         plt.plot(loss_values, label=name)
     plt.xlabel('Epoch')
@@ -205,7 +211,7 @@ def main():
     with open("accuracy_log.txt", "w") as file:
         file.write("Epoch,Accuracy\n")  # 写入文件头
 
-    #得到各个算法的损失度、准确率
+    #创建字典记录各个算法的损失度、准确率
     all_train_losses = {name: [] for name in optimizer_names}
     all_train_accs = {name: [] for name in optimizer_names}
     all_test_losses = {name: [] for name in optimizer_names}
@@ -224,6 +230,7 @@ def main():
         model_ft.conv1 = nn.Conv2d(3, 64, 3, stride=1, padding=1, bias=False)  # 首层改成3x3卷积核
         model_ft.maxpool = nn.MaxPool2d(1, 1, 0)  # 图像太小 本来就没什么特征 所以这里通过1x1的池化核让池化层失效
         num_ftrs = model_ft.fc.in_features  # 获取（fc）层的输入的特征数
+        # 替换最后一层，以匹配你的数据集的类别数
         model_ft.fc = nn.Linear(num_ftrs, 10)
         net = model_ft.to(device)
         #优化器名称
